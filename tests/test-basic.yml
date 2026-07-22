@@ -1,0 +1,62 @@
+name: Test basic pg-dump usage
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install and start PostgreSQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready -q; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i)"
+            sleep 1
+          done
+          # Create test user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE testdb TO testuser;"
+      - name: Create a test table and insert data
+        run: |
+          PGPASSWORD=testpass psql -h localhost -U testuser -d testdb -c "CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT);"
+          PGPASSWORD=testpass psql -h localhost -U testuser -d testdb -c "INSERT INTO test_table (name) VALUES ('hello'), ('world');"
+      - id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpass@localhost:5432/testdb"
+          path: "${{ github.workspace }}/backups/backup.sql"
+          options: "-O"
+      - name: Assert backup file was created
+        run: |
+          echo "Checking if backup file exists..."
+          if [ ! -f "$GITHUB_WORKSPACE/backups/backup.sql" ]; then
+            echo "FAIL: backup file was not created"
+            exit 1
+          fi
+          echo "PASS: backup file exists"
+      - name: Assert backup file is non-empty
+        run: |
+          SIZE=$(wc -c < "$GITHUB_WORKSPACE/backups/backup.sql")
+          echo "Backup file size: $SIZE bytes"
+          if [ "$SIZE" -eq 0 ]; then
+            echo "FAIL: backup file is empty"
+            exit 1
+          fi
+          echo "PASS: backup file is non-empty"
+      - name: Assert backup file contains expected SQL
+        run: |
+          echo "Checking backup file content..."
+          if ! grep -q "test_table" "$GITHUB_WORKSPACE/backups/backup.sql"; then
+            echo "FAIL: backup file does not contain expected table 'test_table'"
+            cat "$GITHUB_WORKSPACE/backups/backup.sql"
+            exit 1
+          fi
+          echo "PASS: backup file contains expected table"

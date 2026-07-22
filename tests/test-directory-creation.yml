@@ -1,0 +1,52 @@
+name: Test pg-dump creates output directory
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install and start PostgreSQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready -q; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i)"
+            sleep 1
+          done
+          # Create test user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE testdb TO testuser;"
+      - name: Ensure output directory does not exist
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/new-nested/deep/dir"
+          echo "Confirmed output directory does not exist"
+      - id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpass@localhost:5432/testdb"
+          path: "${{ github.workspace }}/new-nested/deep/dir/backup.sql"
+          options: "-O"
+      - name: Assert output directory was created
+        run: |
+          echo "Checking if output directory was created..."
+          if [ ! -d "$GITHUB_WORKSPACE/new-nested/deep/dir" ]; then
+            echo "FAIL: output directory was not created"
+            exit 1
+          fi
+          echo "PASS: output directory was created"
+      - name: Assert backup file was created in new directory
+        run: |
+          echo "Checking if backup file exists in new directory..."
+          if [ ! -f "$GITHUB_WORKSPACE/new-nested/deep/dir/backup.sql" ]; then
+            echo "FAIL: backup file was not created in new directory"
+            exit 1
+          fi
+          echo "PASS: backup file exists in new directory"

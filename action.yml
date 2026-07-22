@@ -1,0 +1,54 @@
+name: pg-dump
+description: Run pg_dump to generate a backup
+author: tj-actions
+inputs:
+  postgresql_version:
+    description: 'Version of PostgreSQL. e.g 15'
+    required: false
+  database_url:
+    description: 'Database URL'
+    required: true
+  path:
+    description: 'Backup file output location'
+    required: true
+  options:
+    description: 'Extra [options](https://www.postgresql.org/docs/current/app-pgdump.html#PG-DUMP-OPTIONS) passed to pg_dump'
+    required: true
+    default: '-O'
+runs:
+  using: 'composite'
+  steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
+    - name: Setup PostgreSQL
+      uses: tj-actions/install-postgresql@0eb77dc75e7388ffdbc8542800cb55de1a935d29 # v2
+      if: inputs.postgresql_version != ''
+      with:
+        postgresql-version: ${{ inputs.postgresql_version }}
+    - run: |
+        bash $GITHUB_ACTION_PATH/entrypoint.sh
+      shell: bash
+      env:
+        # INPUT_<VARIABLE_NAME> is not available in Composite run steps
+        # https://github.community/t/input-variable-name-is-not-available-in-composite-run-steps/127611
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_DATABASE_URL: ${{ inputs.database_url }}
+        INPUT_OPTIONS: ${{ inputs.options }}
+branding:
+  icon: hard-drive
+  color: white

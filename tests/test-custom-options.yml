@@ -1,0 +1,59 @@
+name: Test pg-dump with custom options
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install and start PostgreSQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready -q; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i)"
+            sleep 1
+          done
+          # Create test user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE testdb TO testuser;"
+      - name: Create a test table and insert data
+        run: |
+          PGPASSWORD=testpass psql -h localhost -U testuser -d testdb -c "CREATE TABLE items (id SERIAL PRIMARY KEY, label TEXT);"
+          PGPASSWORD=testpass psql -h localhost -U testuser -d testdb -c "INSERT INTO items (label) VALUES ('alpha'), ('beta'), ('gamma');"
+      - id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpass@localhost:5432/testdb"
+          path: "${{ github.workspace }}/backups/schema-only.sql"
+          options: "-O --schema-only"
+      - name: Assert backup file was created
+        run: |
+          echo "Checking if schema-only backup file exists..."
+          if [ ! -f "$GITHUB_WORKSPACE/backups/schema-only.sql" ]; then
+            echo "FAIL: schema-only backup file was not created"
+            exit 1
+          fi
+          echo "PASS: schema-only backup file exists"
+      - name: Assert backup contains schema but not data
+        run: |
+          echo "Checking backup file content for schema..."
+          if ! grep -q "CREATE TABLE" "$GITHUB_WORKSPACE/backups/schema-only.sql"; then
+            echo "FAIL: schema-only backup does not contain CREATE TABLE"
+            cat "$GITHUB_WORKSPACE/backups/schema-only.sql"
+            exit 1
+          fi
+          echo "PASS: backup contains CREATE TABLE"
+          # Schema-only dump should NOT contain INSERT statements
+          if grep -q "INSERT INTO" "$GITHUB_WORKSPACE/backups/schema-only.sql"; then
+            echo "FAIL: schema-only backup should not contain INSERT INTO statements"
+            exit 1
+          fi
+          echo "PASS: backup does not contain INSERT INTO (schema-only confirmed)"

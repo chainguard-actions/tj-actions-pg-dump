@@ -1,0 +1,71 @@
+name: Test auto-creation of output directory
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install and start PostgreSQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... attempt $i"
+            sleep 2
+          done
+          # Create test user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpassword';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+
+      - name: Ensure output directory does not exist before action runs
+        run: |
+          rm -rf /tmp/new-backup-dir
+          if [ -d "/tmp/new-backup-dir" ]; then
+            echo "FAIL: directory should not exist before test"
+            exit 1
+          fi
+          echo "Confirmed: /tmp/new-backup-dir does not exist"
+
+      - name: Run pg_dump action with non-existent output directory
+        id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpassword@localhost:5432/testdb"
+          path: "/tmp/new-backup-dir/nested/subdir/testdb.sql"
+          options: "-O"
+
+      - name: Assert output directory was created automatically
+        run: |
+          echo "Checking if output directory was created"
+          if [ ! -d "/tmp/new-backup-dir/nested/subdir" ]; then
+            echo "FAIL: output directory was not created"
+            exit 1
+          fi
+          echo "PASS: output directory was created"
+
+      - name: Assert backup file was created in the new directory
+        run: |
+          echo "Checking if backup file exists"
+          if [ ! -f "/tmp/new-backup-dir/nested/subdir/testdb.sql" ]; then
+            echo "FAIL: backup file was not created in the new directory"
+            exit 1
+          fi
+          echo "PASS: backup file exists in the new directory"
+
+      - name: Assert backup file contains valid PostgreSQL dump
+        run: |
+          if ! grep -q "PostgreSQL database dump" /tmp/new-backup-dir/nested/subdir/testdb.sql; then
+            echo "FAIL: backup file does not contain PostgreSQL dump header"
+            exit 1
+          fi
+          echo "PASS: backup file contains valid PostgreSQL dump"
