@@ -1,0 +1,61 @@
+name: Test basic pg_dump
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Start PostgreSQL and create test database
+        run: |
+          # Install PostgreSQL if not available
+          if ! command -v pg_dump &>/dev/null; then
+            apt-get update -qq && apt-get install -y -qq postgresql postgresql-client
+          fi
+          # Start PostgreSQL service
+          service postgresql start || pg_ctlcluster 15 main start || true
+          sleep 3
+          # Create user and database
+          su -c "psql -c \"CREATE USER testuser WITH PASSWORD 'testpassword';\"" postgres || true
+          su -c "psql -c \"CREATE DATABASE testdb OWNER testuser;\"" postgres || true
+          echo "PostgreSQL is ready"
+
+      - name: Run pg_dump action
+        id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpassword@localhost:5432/testdb"
+          path: "/tmp/backups/testdb.sql"
+          options: "-O"
+
+      - name: Assert backup file was created
+        run: |
+          echo "Checking if backup file exists at /tmp/backups/testdb.sql"
+          if [ ! -f "/tmp/backups/testdb.sql" ]; then
+            echo "FAIL: backup file was not created"
+            exit 1
+          fi
+          echo "PASS: backup file exists"
+
+      - name: Assert backup file is non-empty
+        run: |
+          SIZE=$(wc -c < /tmp/backups/testdb.sql)
+          echo "Backup file size: $SIZE bytes"
+          if [ "$SIZE" -eq 0 ]; then
+            echo "FAIL: backup file is empty"
+            exit 1
+          fi
+          echo "PASS: backup file is non-empty"
+
+      - name: Assert backup file contains PostgreSQL dump header
+        run: |
+          HEAD=$(head -5 /tmp/backups/testdb.sql)
+          echo "File header: $HEAD"
+          if ! echo "$HEAD" | grep -qi "postgresql\|pg_dump"; then
+            echo "FAIL: backup file does not look like a pg_dump output"
+            exit 1
+          fi
+          echo "PASS: backup file contains expected pg_dump header"

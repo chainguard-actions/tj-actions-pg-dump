@@ -1,0 +1,49 @@
+name: Test pg_dump creates output directory
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install and start PostgreSQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Attempt $i: not ready yet, waiting..."
+            sleep 2
+          done
+          # Create test user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+      - name: Ensure output directory does not exist before test
+        run: |
+          rm -rf /tmp/nonexistent-dir
+          echo "Confirmed /tmp/nonexistent-dir does not exist"
+      - id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpass@localhost:5432/testdb"
+          path: "/tmp/nonexistent-dir/nested/backup.sql"
+          options: "-O"
+      - name: Assert output directory was created
+        run: |
+          if [ ! -d "/tmp/nonexistent-dir/nested" ]; then
+            echo "FAIL: output directory was not created"
+            exit 1
+          fi
+          echo "PASS: output directory was created"
+      - name: Assert backup file exists in created directory
+        run: |
+          if [ ! -f "/tmp/nonexistent-dir/nested/backup.sql" ]; then
+            echo "FAIL: backup file not found in created directory"
+            exit 1
+          fi
+          echo "PASS: backup file exists in created directory"

@@ -1,0 +1,49 @@
+name: Test pg_dump with postgresql_version input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install and start PostgreSQL (system)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Attempt $i: not ready yet, waiting..."
+            sleep 2
+          done
+          # Create test user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+      - id: action
+        uses: .
+        with:
+          postgresql_version: "15"
+          database_url: "postgresql://testuser:testpass@localhost:5432/testdb"
+          path: "/tmp/backup-versioned/testdb.sql"
+          options: "-O"
+      - name: Assert backup file exists
+        run: |
+          echo "Checking if backup file exists at /tmp/backup-versioned/testdb.sql"
+          if [ ! -f "/tmp/backup-versioned/testdb.sql" ]; then
+            echo "FAIL: backup file not found"
+            exit 1
+          fi
+          echo "PASS: backup file exists"
+      - name: Assert backup file contains PostgreSQL dump header
+        run: |
+          HEAD=$(head -5 /tmp/backup-versioned/testdb.sql)
+          echo "File header: $HEAD"
+          if ! grep -q "PostgreSQL database dump" /tmp/backup-versioned/testdb.sql; then
+            echo "FAIL: backup file does not contain PostgreSQL dump header"
+            exit 1
+          fi
+          echo "PASS: backup file contains PostgreSQL dump header"

@@ -1,0 +1,63 @@
+name: Test pg_dump creates output directory
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Start PostgreSQL and create test database
+        run: |
+          # Install PostgreSQL if not available
+          if ! command -v pg_dump &>/dev/null; then
+            apt-get update -qq && apt-get install -y -qq postgresql postgresql-client
+          fi
+          # Start PostgreSQL service
+          service postgresql start || pg_ctlcluster 15 main start || true
+          sleep 3
+          # Create user and database
+          su -c "psql -c \"CREATE USER testuser WITH PASSWORD 'testpassword';\"" postgres || true
+          su -c "psql -c \"CREATE DATABASE testdb OWNER testuser;\"" postgres || true
+          echo "PostgreSQL is ready"
+
+      - name: Ensure output directory does not exist before action runs
+        run: |
+          rm -rf /tmp/new-nested/backup/dir
+          echo "Confirmed: /tmp/new-nested/backup/dir does not exist"
+
+      - name: Run pg_dump action with nested non-existent output directory
+        id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpassword@localhost:5432/testdb"
+          path: "/tmp/new-nested/backup/dir/testdb.sql"
+          options: "-O"
+
+      - name: Assert output directory was created
+        run: |
+          if [ ! -d "/tmp/new-nested/backup/dir" ]; then
+            echo "FAIL: output directory was not created"
+            exit 1
+          fi
+          echo "PASS: output directory was created"
+
+      - name: Assert backup file was created inside the new directory
+        run: |
+          if [ ! -f "/tmp/new-nested/backup/dir/testdb.sql" ]; then
+            echo "FAIL: backup file was not created in the new directory"
+            exit 1
+          fi
+          echo "PASS: backup file exists in the newly created directory"
+
+      - name: Assert backup file is valid pg_dump output
+        run: |
+          HEAD=$(head -5 /tmp/new-nested/backup/dir/testdb.sql)
+          echo "File header: $HEAD"
+          if ! echo "$HEAD" | grep -qi "postgresql\|pg_dump"; then
+            echo "FAIL: backup file does not look like a pg_dump output"
+            exit 1
+          fi
+          echo "PASS: backup file contains expected pg_dump header"

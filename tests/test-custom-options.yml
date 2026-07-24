@@ -1,0 +1,59 @@
+name: Test pg_dump with custom options
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install and start PostgreSQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Attempt $i: not ready yet, waiting..."
+            sleep 2
+          done
+          # Create test user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+      - name: Create a test table with data
+        run: |
+          PGPASSWORD=testpass psql -h localhost -U testuser -d testdb -c "
+            CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT);
+            INSERT INTO test_table (name) VALUES ('row1'), ('row2');
+          "
+      - name: Run pg_dump with schema-only option
+        id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpass@localhost:5432/testdb"
+          path: "/tmp/schema-only.sql"
+          options: "-O --schema-only"
+      - name: Assert schema-only backup file exists
+        run: |
+          if [ ! -f "/tmp/schema-only.sql" ]; then
+            echo "FAIL: schema-only backup file not found"
+            exit 1
+          fi
+          echo "PASS: schema-only backup file exists"
+      - name: Assert schema-only dump contains table definition but not data
+        run: |
+          echo "Checking dump contains CREATE TABLE..."
+          if ! grep -q "CREATE TABLE" /tmp/schema-only.sql; then
+            echo "FAIL: schema-only dump does not contain CREATE TABLE"
+            exit 1
+          fi
+          echo "PASS: schema-only dump contains CREATE TABLE"
+          echo "Checking dump does not contain INSERT statements..."
+          if grep -q "INSERT INTO" /tmp/schema-only.sql; then
+            echo "FAIL: schema-only dump should not contain INSERT INTO"
+            exit 1
+          fi
+          echo "PASS: schema-only dump does not contain INSERT INTO"

@@ -1,0 +1,83 @@
+name: Test pg_dump with table data
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Start PostgreSQL and create test database
+        run: |
+          # Install PostgreSQL if not available
+          if ! command -v pg_dump &>/dev/null; then
+            apt-get update -qq && apt-get install -y -qq postgresql postgresql-client
+          fi
+          # Start PostgreSQL service
+          service postgresql start || pg_ctlcluster 15 main start || true
+          sleep 3
+          # Create user and database
+          su -c "psql -c \"CREATE USER testuser WITH PASSWORD 'testpassword';\"" postgres || true
+          su -c "psql -c \"CREATE DATABASE testdb OWNER testuser;\"" postgres || true
+          echo "PostgreSQL is ready"
+
+      - name: Create a table and insert data into the test database
+        run: |
+          PGPASSWORD=testpassword psql -h localhost -U testuser -d testdb -c "
+            CREATE TABLE employees (
+              id SERIAL PRIMARY KEY,
+              name TEXT NOT NULL,
+              department TEXT
+            );
+            INSERT INTO employees (name, department) VALUES
+              ('Alice', 'Engineering'),
+              ('Bob', 'Marketing');
+          "
+          echo "Table and data created successfully"
+
+      - name: Run pg_dump action
+        id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpassword@localhost:5432/testdb"
+          path: "/tmp/backups/testdb-with-data.sql"
+          options: "-O"
+
+      - name: Assert backup file was created
+        run: |
+          if [ ! -f "/tmp/backups/testdb-with-data.sql" ]; then
+            echo "FAIL: backup file was not created"
+            exit 1
+          fi
+          echo "PASS: backup file exists"
+
+      - name: Assert backup contains the employees table definition
+        run: |
+          if ! grep -q "employees" /tmp/backups/testdb-with-data.sql; then
+            echo "FAIL: backup does not contain 'employees' table"
+            exit 1
+          fi
+          echo "PASS: backup contains 'employees' table"
+
+      - name: Assert backup contains the inserted data
+        run: |
+          if ! grep -q "Alice" /tmp/backups/testdb-with-data.sql; then
+            echo "FAIL: backup does not contain expected row data 'Alice'"
+            exit 1
+          fi
+          if ! grep -q "Bob" /tmp/backups/testdb-with-data.sql; then
+            echo "FAIL: backup does not contain expected row data 'Bob'"
+            exit 1
+          fi
+          echo "PASS: backup contains expected row data"
+
+      - name: Assert -O option suppressed ownership commands
+        run: |
+          # -O means no ownership/privilege commands should appear
+          if grep -q "^ALTER TABLE.*OWNER TO" /tmp/backups/testdb-with-data.sql; then
+            echo "FAIL: backup contains ownership commands despite -O flag"
+            exit 1
+          fi
+          echo "PASS: no ownership commands found (as expected with -O)"
