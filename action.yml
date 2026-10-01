@@ -36,7 +36,7 @@ runs:
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
     - name: Setup PostgreSQL
-      uses: tj-actions/install-postgresql@0eb77dc75e7388ffdbc8542800cb55de1a935d29 # v2
+      uses: chainguard-actions/tj-actions-install-postgresql@94897986ed34516fba7182796ad46286f8679b63 # v2
       if: inputs.postgresql_version != ''
       with:
         postgresql-version: ${{ inputs.postgresql_version }}

@@ -16,11 +16,12 @@ fi
 
 echo "Running pg_dump..."
 
-# Split INPUT_OPTIONS on whitespace into an array to avoid unquoted expansion
-# while still supporting multiple space-separated flags (e.g. "-O -Fc").
-# read -ra does NOT interpret shell metacharacters, preventing injection.
-IFS=' ' read -ra pg_dump_options <<< "$INPUT_OPTIONS"
-pg_dump "${pg_dump_options[@]}" -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"
+options=()
+if [ -n "$INPUT_OPTIONS" ]; then
+  while IFS= read -r -d '' t; do options+=("$t"); done \
+    < <(printf '%s' "$INPUT_OPTIONS" | xargs printf '%s\0')
+fi
+pg_dump "${options[@]}" -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"
 
 echo "Complete"
 

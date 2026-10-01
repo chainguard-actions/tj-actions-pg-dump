@@ -21,37 +21,31 @@ jobs:
             sleep 1
           done
           # Create test user and database
-          sudo -u postgres psql -c "CREATE USER pgversionuser WITH PASSWORD 'pgversionpass';"
-          sudo -u postgres psql -c "CREATE DATABASE pgversiondb OWNER pgversionuser;"
-          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE pgversiondb TO pgversionuser;"
+          sudo -u postgres psql -c "CREATE USER pgvuser WITH PASSWORD 'pgvpass';"
+          sudo -u postgres psql -c "CREATE DATABASE pgvdb OWNER pgvuser;"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE pgvdb TO pgvuser;"
       - name: Create a test table and insert data
         run: |
-          PGPASSWORD=pgversionpass psql -h localhost -U pgversionuser -d pgversiondb -c "CREATE TABLE version_table (id SERIAL PRIMARY KEY, value TEXT);"
-          PGPASSWORD=pgversionpass psql -h localhost -U pgversionuser -d pgversiondb -c "INSERT INTO version_table (value) VALUES ('version-test');"
-      - name: Detect installed PostgreSQL version
-        id: pg_version
-        run: |
-          VERSION=$(psql --version | grep -oP '\d+' | head -1)
-          echo "Detected PostgreSQL major version: $VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          PGPASSWORD=pgvpass psql -h localhost -U pgvuser -d pgvdb -c "CREATE TABLE version_table (id SERIAL PRIMARY KEY, value TEXT);"
+          PGPASSWORD=pgvpass psql -h localhost -U pgvuser -d pgvdb -c "INSERT INTO version_table (value) VALUES ('alpha'), ('beta');"
       - id: action
         uses: .
         with:
-          postgresql_version: ${{ steps.pg_version.outputs.version }}
-          database_url: "postgresql://pgversionuser:pgversionpass@localhost:5432/pgversiondb"
-          path: "${{ github.workspace }}/backups/version-backup.sql"
+          postgresql_version: "15"
+          database_url: "postgresql://pgvuser:pgvpass@localhost:5432/pgvdb"
+          path: "${{ github.workspace }}/backups/pgv-backup.sql"
           options: "-O"
       - name: Assert backup file was created
         run: |
           echo "Checking if backup file exists..."
-          if [ ! -f "$GITHUB_WORKSPACE/backups/version-backup.sql" ]; then
+          if [ ! -f "$GITHUB_WORKSPACE/backups/pgv-backup.sql" ]; then
             echo "FAIL: backup file was not created"
             exit 1
           fi
           echo "PASS: backup file exists"
       - name: Assert backup file is non-empty
         run: |
-          SIZE=$(wc -c < "$GITHUB_WORKSPACE/backups/version-backup.sql")
+          SIZE=$(wc -c < "$GITHUB_WORKSPACE/backups/pgv-backup.sql")
           echo "Backup file size: $SIZE bytes"
           if [ "$SIZE" -eq 0 ]; then
             echo "FAIL: backup file is empty"
@@ -61,9 +55,9 @@ jobs:
       - name: Assert backup file contains expected SQL
         run: |
           echo "Checking backup file content..."
-          if ! grep -q "version_table" "$GITHUB_WORKSPACE/backups/version-backup.sql"; then
+          if ! grep -q "version_table" "$GITHUB_WORKSPACE/backups/pgv-backup.sql"; then
             echo "FAIL: backup file does not contain expected table 'version_table'"
-            cat "$GITHUB_WORKSPACE/backups/version-backup.sql"
+            cat "$GITHUB_WORKSPACE/backups/pgv-backup.sql"
             exit 1
           fi
           echo "PASS: backup file contains expected table"
