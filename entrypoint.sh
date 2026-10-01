@@ -16,10 +16,12 @@ fi
 
 echo "Running pg_dump..."
 
-# Parse INPUT_OPTIONS into an array to prevent shell metacharacter injection
-# while still allowing multiple space-separated flags (e.g. "-O -Fc --no-acl").
-IFS=' ' read -ra pg_dump_options <<< "$INPUT_OPTIONS"
-pg_dump "${pg_dump_options[@]}" -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"
+pg_dump_opts=()
+if [ -n "$INPUT_OPTIONS" ]; then
+  while IFS= read -r -d '' t; do pg_dump_opts+=("$t"); done \
+    < <(printf '%s' "$INPUT_OPTIONS" | xargs printf '%s\0')
+fi
+pg_dump "${pg_dump_opts[@]}" -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"
 
 echo "Complete"
 

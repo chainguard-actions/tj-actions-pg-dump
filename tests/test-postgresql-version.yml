@@ -21,28 +21,28 @@ jobs:
             sleep 2
           done
           # Create test user and database
-          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
-          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+          sudo -u postgres psql -c "CREATE USER pgversionuser WITH PASSWORD 'pgversionpass';"
+          sudo -u postgres psql -c "CREATE DATABASE pgversiondb OWNER pgversionuser;"
       - id: action
         uses: .
         with:
-          postgresql_version: "15"
-          database_url: "postgresql://testuser:testpass@localhost:5432/testdb"
-          path: "/tmp/backup-versioned/testdb.sql"
+          postgresql_version: '15'
+          database_url: "postgresql://pgversionuser:pgversionpass@localhost:5432/pgversiondb"
+          path: "/tmp/pgversion-backup/pgversiondb.sql"
           options: "-O"
       - name: Assert backup file exists
         run: |
-          echo "Checking if backup file exists at /tmp/backup-versioned/testdb.sql"
-          if [ ! -f "/tmp/backup-versioned/testdb.sql" ]; then
+          echo "Checking if backup file exists at /tmp/pgversion-backup/pgversiondb.sql"
+          if [ ! -f "/tmp/pgversion-backup/pgversiondb.sql" ]; then
             echo "FAIL: backup file not found"
             exit 1
           fi
           echo "PASS: backup file exists"
       - name: Assert backup file contains PostgreSQL dump header
         run: |
-          HEAD=$(head -5 /tmp/backup-versioned/testdb.sql)
+          HEAD=$(head -5 /tmp/pgversion-backup/pgversiondb.sql)
           echo "File header: $HEAD"
-          if ! grep -q "PostgreSQL database dump" /tmp/backup-versioned/testdb.sql; then
+          if ! grep -q "PostgreSQL database dump" /tmp/pgversion-backup/pgversiondb.sql; then
             echo "FAIL: backup file does not contain PostgreSQL dump header"
             exit 1
           fi
