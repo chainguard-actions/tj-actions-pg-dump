@@ -16,20 +16,20 @@ Action **tj-actions--pg-dump/v3.0** was hardened automatically. 2 finding(s) wer
 
 ### unpinned-uses (severity: high)
 
-action.yml references `tj-actions/install-postgresql@v2`, which uses a mutable tag (`v2`) instead of a pinned 40-character commit SHA. This means the action could be silently updated to a different (potentially malicious) version without any change to this repository.
+action.yml references `tj-actions/install-postgresql@v2`, which uses a mutable version tag (`@v2`) instead of a pinned 40-character commit SHA. This means the action could be silently replaced with malicious code on the next run without any change to the workflow file, enabling a supply-chain attack.
 
 Locations:
 
-- `action.yml:21`
+- `action.yml:23`
 
 ### script-injection (severity: high)
 
-Rule (b) violation: In entrypoint.sh, the shell variable `$INPUT_OPTIONS` is expanded **unquoted** in the command `pg_dump $INPUT_OPTIONS -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"`. `INPUT_OPTIONS` is populated directly from `${{ inputs.options }}` (a user-controlled action input) via the `env:` block in action.yml. Because the variable is unquoted, an attacker can inject shell metacharacters (`;`, `|`, `$(...)`, etc.) through the `options` input to execute arbitrary commands. Fix: quote the variable as `"$INPUT_OPTIONS"` or use an array approach.
+Rule (b) violation: In `entrypoint.sh` line 20, the shell variable `$INPUT_OPTIONS` is expanded **unquoted** in the command `pg_dump $INPUT_OPTIONS -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"`. `INPUT_OPTIONS` is populated from `inputs.options` (an attacker-controlled input) via the `env:` block in `action.yml`. The unquoted expansion allows the shell to parse metacharacters (`;`, `|`, `&`, `$(...)`, etc.) from the value, enabling command injection. The `# shellcheck disable=SC2086` comment on the preceding line confirms the author intentionally suppressed the shellcheck warning but does not mitigate the security risk. The fix is to quote the variable (`"$INPUT_OPTIONS"`) or use an array to pass options safely.
 
 Locations:
 
-- `entrypoint.sh:19`
-- `action.yml:33`
+- `entrypoint.sh:20`
+- `action.yml:35`
 
 ## Iteration Notes
 
@@ -39,6 +39,6 @@ Locations:
 
 **Notes:**
 
-1. Pinned `tj-actions/install-postgresql@v2` to full SHA `0eb77dc75e7388ffdbc8542800cb55de1a935d29` in action.yml (line 21), preserving the tag as a comment.
-2. Fixed script injection in entrypoint.sh: replaced the unquoted `$INPUT_OPTIONS` expansion with a bash array populated via xargs-based quote-aware tokenization. The `if [ -n "$INPUT_OPTIONS" ]` guard prevents an empty argument when the variable is empty. The array is then expanded as `"${options[@]}"` so each token remains a separate, properly-quoted argument to pg_dump, preventing shell metacharacter injection.
+1. action.yml line 23: Pinned `tj-actions/install-postgresql@v2` to full SHA `0eb77dc75e7388ffdbc8542800cb55de1a935d29` with `# v2` comment for readability.
+2. entrypoint.sh line 20: Replaced unquoted `$INPUT_OPTIONS` expansion (with shellcheck disable comment) with a safe xargs-based array tokenization pattern. The `options` input is a whitespace-separated list of pg_dump flags, so it uses the guarded `while IFS= read -r -d '' t; do options+=("$t"); done < <(printf '%s' "$INPUT_OPTIONS" | xargs printf '%s\0')` idiom to safely tokenize the value into a bash array, then expands it as `"${options[@]}"`. This prevents shell metacharacter injection (`;`, `|`, `&`, `$(...)`, etc.) while correctly handling quoted arguments within the options list.
 
