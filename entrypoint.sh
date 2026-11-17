@@ -16,12 +16,12 @@ fi
 
 echo "Running pg_dump..."
 
-pg_dump_opts=()
-if [ -n "$INPUT_OPTIONS" ]; then
-  while IFS= read -r -d '' t; do pg_dump_opts+=("$t"); done \
-    < <(printf '%s' "$INPUT_OPTIONS" | xargs printf '%s\0')
-fi
-pg_dump "${pg_dump_opts[@]}" -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"
+# Split INPUT_OPTIONS into separate arguments exactly as upstream's unquoted
+# expansion did (whitespace split + glob). Nothing in the value is evaluated:
+# ';', '|', '$(...)' and backticks stay literal argument text.
+# shellcheck disable=SC2206
+pg_dump_opts=($INPUT_OPTIONS)
+pg_dump ${pg_dump_opts[@]+"${pg_dump_opts[@]}"} -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"
 
 echo "Complete"
 

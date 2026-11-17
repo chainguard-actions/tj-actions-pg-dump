@@ -15,6 +15,7 @@ inputs:
     description: 'Extra [options](https://www.postgresql.org/docs/current/app-pgdump.html#PG-DUMP-OPTIONS) passed to pg_dump'
     required: true
     default: '-O'
+
 runs:
   using: 'composite'
   steps:
@@ -41,7 +42,7 @@ runs:
       with:
         postgresql-version: ${{ inputs.postgresql_version }}
     - run: |
-        bash $GITHUB_ACTION_PATH/entrypoint.sh
+        bash "$GITHUB_ACTION_PATH/entrypoint.sh"
       shell: bash
       env:
         # INPUT_<VARIABLE_NAME> is not available in Composite run steps
