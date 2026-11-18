@@ -16,12 +16,12 @@ fi
 
 echo "Running pg_dump..."
 
-options=()
-if [ -n "$INPUT_OPTIONS" ]; then
-  while IFS= read -r -d '' t; do options+=("$t"); done \
-    < <(printf '%s' "$INPUT_OPTIONS" | xargs printf '%s\0')
-fi
-pg_dump "${options[@]}" -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"
+# Split the options list exactly as upstream's unquoted $INPUT_OPTIONS did
+# (whitespace split + glob). Word splitting does not evaluate ';', '|',
+# '$(...)' or backticks in the value, so nothing in it is executed.
+# shellcheck disable=SC2206
+options=(${INPUT_OPTIONS:-})
+pg_dump ${options[@]+"${options[@]}"} -d "$INPUT_DATABASE_URL" > "$INPUT_PATH"
 
 echo "Complete"
 
